@@ -177,7 +177,6 @@
         // --- Initialize FFmpeg ---
         let FFmpeg = null;
         let fetchFile = null;
-        let toBlobURL = null; // 1. เพิ่มตัวแปรสำหรับโหลดแบบ Blob
         
         // ตรวจสอบว่าโหลดไลบรารีสำเร็จหรือไม่ เพื่อป้องกันไม่ให้สคริปต์ส่วนอื่นหยุดทำงาน
         if (typeof FFmpegWASM !== 'undefined') {
@@ -185,7 +184,14 @@
         }
         if (typeof FFmpegUtil !== 'undefined') {
             fetchFile = FFmpegUtil.fetchFile;
-            toBlobURL = FFmpegUtil.toBlobURL; // 2. นำเข้า toBlobURL
+        }
+
+        // 1. ฟังก์ชันโหลดไฟล์สร้างเอง (แก้ปัญหา toBlobURL is not a function)
+        async function customToBlobURL(url, mimeType) {
+            const response = await fetch(url);
+            const buffer = await response.arrayBuffer();
+            const blob = new Blob([buffer], { type: mimeType });
+            return URL.createObjectURL(blob);
         }
 
         async function initFFmpeg() {
@@ -222,11 +228,10 @@
                 const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
                 const ffmpegURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
                 
-                // 3. ใช้ toBlobURL เพื่อแก้ปัญหา "cannot be accessed from origin 'null'" (CORS issue) 
-                // เวลาเปิดไฟล์ HTML ด้วยการดับเบิลคลิกตรงๆ
-                const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
-                const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
-                const classWorkerURL = await toBlobURL(`${ffmpegURL}/814.ffmpeg.js`, 'text/javascript');
+                // 2. ใช้ customToBlobURL ที่เราเขียนเอง
+                const coreURL = await customToBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
+                const wasmURL = await customToBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
+                const classWorkerURL = await customToBlobURL(`${ffmpegURL}/814.ffmpeg.js`, 'text/javascript');
 
                 await ffmpeg.load({
                     coreURL: coreURL,
