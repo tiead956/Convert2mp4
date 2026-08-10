@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>โปรแกรมแปลงไฟล์วิดีโอเป็น MP4 (DAT/MKV/MP4 to MP4)</title>
+    <!-- นำเข้า Tailwind CSS สำหรับการตกแต่ง UI ให้สวยงาม -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- นำเข้า Font Awesome สำหรับไอคอน -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- นำเข้า FFmpeg WebAssembly library -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: #f3f4f6; /* Gray-100 */
+        }
+        
+        .drag-active {
+            border-color: #3b82f6; /* Blue-500 */
+            background-color: #eff6ff; /* Blue-50 */
+        }
+
+        /* Animation for loading spinner */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+
+        /* Custom scrollbar for logs */
+        .log-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .log-container::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+            border-radius: 4px;
+        }
+        .log-container::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        .log-container::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+    </style>
+</head>
+<body class="min-h-screen py-8 px-4 sm:px-6 lg:px-8 flex flex-col justify-between">
+
+    <div class="max-w-3xl mx-auto w-full bg-white rounded-xl shadow-lg overflow-hidden">
+        
+        <!-- Header Section -->
+        <div class="bg-blue-600 px-6 py-4">
+            <h1 class="text-2xl font-bold text-white flex items-center justify-center gap-2">
+                <i class="fa-solid fa-file-video"></i>
+                โปรแกรมแปลงไฟล์วิดีโอ (DAT/MKV/MP4 เป็น MP4)
+            </h1>
+            <p class="text-blue-100 text-center text-sm mt-1">แปลงและปรับความละเอียดวิดีโอของคุณได้ง่ายๆ ภายในเบราว์เซอร์ ปลอดภัยและรวดเร็ว</p>
+        </div>
+
+        <div class="p-6 md:p-8 space-y-6">
+            
+            <!-- ย้าย input ออกมาด้านนอก เพื่อป้องกันบั๊กการคลิกซ้อนกัน (Event Bubbling / Infinite Loop) -->
+            <input type="file" id="fileInput" class="hidden" accept=".dat,.mkv,.mp4,.avi,.mov" />
+            
+            <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center transition-colors duration-200 cursor-pointer hover:border-blue-400 hover:bg-gray-50">
+                <div class="space-y-4">
+                    <i class="fa-solid fa-cloud-arrow-up text-5xl text-gray-400"></i>
+                    <div>
+                        <p class="text-lg font-medium text-gray-700">คลิกที่นี่เพื่อเลือกไฟล์ หรือ ลากไฟล์มาวาง</p>
+                        <p class="text-sm text-gray-500 mt-1">รองรับไฟล์ .dat, .mkv, .mp4 และรูปแบบวิดีโออื่นๆ</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="fileInfo" class="hidden bg-gray-50 border border-gray-200 rounded-lg p-4 flex items-center justify-between">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <i class="fa-solid fa-film text-blue-500 text-xl"></i>
+                    <div class="truncate">
+                        <p id="fileName" class="font-medium text-gray-800 truncate">filename.mkv</p>
+                        <p id="fileSize" class="text-xs text-gray-500">0 MB</p>
+                    </div>
+                </div>
+                <button id="removeFileBtn" class="text-red-500 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-colors">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">เลือกความละเอียดที่ต้องการ:</label>
+                <div class="grid grid-cols-2 gap-3 max-w-md mx-auto md:mx-0">
+                    <!-- 360p -->
+                    <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none">
+                        <input type="radio" name="resolution" value="640x360" class="peer sr-only" />
+                        <span class="peer-checked:border-blue-500 peer-checked:ring-1 peer-checked:ring-blue-500 absolute inset-0 rounded-lg border-2 border-transparent pointer-events-none"></span>
+                        <div class="flex flex-col text-center w-full">
+                            <span class="font-bold text-gray-900">360p</span>
+                            <span class="text-xs text-gray-500 mt-1">SD (360p)</span>
+                            <span class="text-[10px] text-gray-400">ประมวลผลไว ขนาดไฟล์เล็ก</span>
+                        </div>
+                    </label>
+                    
+                    <!-- 480p -->
+                    <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none">
+                        <input type="radio" name="resolution" value="854x480" class="peer sr-only" checked />
+                        <span class="peer-checked:border-blue-500 peer-checked:ring-1 peer-checked:ring-blue-500 absolute inset-0 rounded-lg border-2 border-transparent pointer-events-none"></span>
+                        <div class="flex flex-col text-center w-full">
+                            <span class="font-bold text-gray-900">480p</span>
+                            <span class="text-xs text-gray-500 mt-1">Standard (480p)</span>
+                            <span class="text-[10px] text-gray-400">สมดุลที่สุด คุณภาพดี</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div id="progressContainer" class="hidden space-y-2">
+                <div class="flex justify-between text-sm font-medium text-gray-700">
+                    <span id="statusText">กำลังเตรียมการ...</span>
+                    <span id="progressPercentage">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <!-- Log Console -->
+                <div class="mt-2 bg-gray-900 rounded-md p-3">
+                    <p class="text-xs text-gray-400 mb-1 border-b border-gray-700 pb-1">FFmpeg Logs (สำหรับติดตามการทำงาน)</p>
+                    <div id="logConsole" class="log-container h-32 overflow-y-auto text-xs text-green-400 font-mono whitespace-pre-wrap"></div>
+                </div>
+            </div>
+
+            <button id="convertBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2" disabled>
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                เริ่มแปลงไฟล์
+            </button>
+            
+            <!-- Note -->
+            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded text-sm text-yellow-700">
+                <p class="font-bold mb-1"><i class="fa-solid fa-circle-info mr-1"></i> ข้อควรทราบ:</p>
+                <ul class="list-disc list-inside space-y-1 ml-1">
+                    <li>การแปลงไฟล์ทำงานผ่านเบราว์เซอร์ของคุณ 100% ไม่มีการอัปโหลดไฟล์ไปที่เซิร์ฟเวอร์</li>
+                    <li>ความเร็วในการแปลงขึ้นอยู่กับประสิทธิภาพคอมพิวเตอร์และขนาดของไฟล์</li>
+                    <li>แนะนำให้ใช้เบราว์เซอร์รุ่นล่าสุด (Chrome, Edge, Firefox)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <footer class="mt-8 text-center text-sm text-gray-500">
+        <p>ผู้สร้าง tieadbkk <span class="mx-2">|</span> <i class="fa-regular fa-calendar-days mx-1"></i> 10 สิงหาคม 2569</p>
+    </footer>
+
+    <script>
+        // --- DOM Elements ---
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileNameEl = document.getElementById('fileName');
+        const fileSizeEl = document.getElementById('fileSize');
+        const removeFileBtn = document.getElementById('removeFileBtn');
+        const convertBtn = document.getElementById('convertBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressPercentage = document.getElementById('progressPercentage');
+        const statusText = document.getElementById('statusText');
+        const logConsole = document.getElementById('logConsole');
+
+        // --- State Variables ---
+        let currentFile = null;
+        let ffmpeg = null;
+        let isConverting = false;
+
+        // --- Initialize FFmpeg ---
+        let FFmpeg = null;
+        let fetchFile = null;
+        let toBlobURL = null; // 1. เพิ่มตัวแปรสำหรับโหลดแบบ Blob
+        
+        // ตรวจสอบว่าโหลดไลบรารีสำเร็จหรือไม่ เพื่อป้องกันไม่ให้สคริปต์ส่วนอื่นหยุดทำงาน
+        if (typeof FFmpegWASM !== 'undefined') {
+            FFmpeg = FFmpegWASM.FFmpeg;
+        }
+        if (typeof FFmpegUtil !== 'undefined') {
+            fetchFile = FFmpegUtil.fetchFile;
+            toBlobURL = FFmpegUtil.toBlobURL; // 2. นำเข้า toBlobURL
+        }
+
+        async function initFFmpeg() {
+            if (!FFmpeg) {
+                statusText.textContent = "ไม่สามารถโหลดระบบแปลงไฟล์ได้ โปรดปิด Adblocker แล้วรีเฟรช";
+                statusText.classList.add('text-red-500');
+                throw new Error("FFmpeg library not loaded");
+            }
+            
+            if (ffmpeg) return ffmpeg;
+
+            ffmpeg = new FFmpeg();
+            
+            // Setup logging to our console
+            ffmpeg.on('log', ({ message }) => {
+                const logLine = document.createElement('div');
+                logLine.textContent = message;
+                logConsole.appendChild(logLine);
+                logConsole.scrollTop = logConsole.scrollHeight;
+            });
+
+            // Setup progress tracking
+            ffmpeg.on('progress', ({ progress, time }) => {
+                if (isConverting) {
+                    const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+                    updateProgress(percent, `กำลังแปลงไฟล์... (${percent}%)`);
+                }
+            });
+
+            statusText.textContent = "กำลังโหลดไลบรารี FFmpeg... (อาจใช้เวลาสักครู่)";
+            updateProgress(10);
+            
+            try {
+                const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+                const ffmpegURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+                
+                // 3. ใช้ toBlobURL เพื่อแก้ปัญหา "cannot be accessed from origin 'null'" (CORS issue) 
+                // เวลาเปิดไฟล์ HTML ด้วยการดับเบิลคลิกตรงๆ
+                const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
+                const wasmURL = await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm');
+                const classWorkerURL = await toBlobURL(`${ffmpegURL}/814.ffmpeg.js`, 'text/javascript');
+
+                await ffmpeg.load({
+                    coreURL: coreURL,
+                    wasmURL: wasmURL,
+                    classWorkerURL: classWorkerURL,
+                });
+                
+                statusText.textContent = "FFmpeg พร้อมใช้งาน";
+                updateProgress(100);
+                return ffmpeg;
+            } catch (error) {
+                console.error("Error loading FFmpeg:", error);
+                statusText.textContent = "โหลดไลบรารีไม่สำเร็จ (เบราว์เซอร์จำกัดสิทธิ์)";
+                statusText.classList.add('text-red-500');
+                logToConsole("ERROR: Failed to load FFmpeg. " + error.message, true);
+                logToConsole("สาเหตุ: เบราว์เซอร์ของคุณบล็อกความปลอดภัยเมื่อเปิดไฟล์แบบ file://", true);
+                logToConsole("วิธีแก้: ติดตั้งส่วนขยาย Live Server ใน VS Code หรืออัปโหลดไฟล์ HTML ขึ้น Hosting ก่อนใช้งาน", true);
+                throw error;
+            }
+        }
+
+        // --- Utility Functions ---
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        function updateProgress(percent, text = null) {
+            progressBar.style.width = `${percent}%`;
+            progressPercentage.textContent = `${percent}%`;
+            if (text) statusText.textContent = text;
+        }
+
+        function logToConsole(msg, isError = false) {
+            const logLine = document.createElement('div');
+            logLine.textContent = msg;
+            if (isError) logLine.classList.add('text-red-400');
+            logConsole.appendChild(logLine);
+            logConsole.scrollTop = logConsole.scrollHeight;
+        }
+
+        function getSelectedResolution() {
+            const radios = document.getElementsByName('resolution');
+            for (const radio of radios) {
+                if (radio.checked) {
+                    return radio.value;
+                }
+            }
+            return '854x480';
+        }
+
+        // --- File Handling Logic ---
+        function handleFileSelect(file) {
+            if (!file) return;
+            
+            currentFile = file;
+            fileNameEl.textContent = file.name;
+            fileSizeEl.textContent = formatBytes(file.size);
+            
+            dropZone.classList.add('hidden');
+            fileInfo.classList.remove('hidden');
+            convertBtn.disabled = false;
+            
+            progressContainer.classList.add('hidden');
+            progressBar.style.width = '0%';
+            progressPercentage.textContent = '0%';
+            logConsole.innerHTML = '';
+        }
+
+        function removeFile() {
+            if (isConverting) return;
+            
+            currentFile = null;
+            fileInput.value = '';
+            
+            dropZone.classList.remove('hidden');
+            fileInfo.classList.add('hidden');
+            convertBtn.disabled = true;
+            progressContainer.classList.add('hidden');
+        }
+
+        // --- Event Listeners ---
+        dropZone.addEventListener('click', (e) => {
+            // ป้องกันการคลิกซ้ำซ้อน
+            if (e.target !== fileInput) {
+                fileInput.click();
+            }
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-active');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-active');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-active');
+            
+            if (e.dataTransfer.files.length > 0) {
+                handleFileSelect(e.dataTransfer.files[0]);
+            }
+        });
+
+        removeFileBtn.addEventListener('click', removeFile);
+
+        // --- Conversion Logic ---
+        convertBtn.addEventListener('click', async () => {
+            if (!currentFile || isConverting) return;
+
+            try {
+                isConverting = true;
+                convertBtn.disabled = true;
+                removeFileBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                convertBtn.innerHTML = '<i class="fa-solid fa-circle-notch animate-spin"></i> กำลังประมวลผล...';
+                convertBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                convertBtn.classList.add('bg-gray-500');
+
+                progressContainer.classList.remove('hidden');
+                logConsole.innerHTML = '';
+                logToConsole(`เริ่มต้นการแปลงไฟล์: ${currentFile.name}`);
+                
+                const ff = await initFFmpeg();
+
+                statusText.textContent = "กำลังอ่านไฟล์...";
+                logToConsole("Writing file to virtual file system...");
+                const inputName = 'input' + currentFile.name.substring(currentFile.name.lastIndexOf('.'));
+                const outputName = 'output.mp4';
+                
+                const fileData = await fetchFile(currentFile);
+                await ff.writeFile(inputName, fileData);
+
+                const resolution = getSelectedResolution();
+                logToConsole(`Selected Target Resolution: ${resolution}`);
+                
+                statusText.textContent = "เริ่มการแปลงวิดีโอ... (อาจใช้เวลานาน)";
+                
+                const targetHeight = resolution === '854x480' ? 480 : 360;
+
+                const args = [
+                    '-i', inputName,
+                    '-vf', `scale=-2:${targetHeight}`,
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-c:a', 'aac',
+                    outputName
+                ];
+
+                logToConsole(`Running command: ffmpeg ${args.join(' ')}`);
+
+                await ff.exec(args);
+
+                statusText.textContent = "เสร็จสิ้น! กำลังเตรียมไฟล์ดาวน์โหลด...";
+                updateProgress(100);
+                logToConsole("Conversion finished. Reading output file...");
+                
+                const data = await ff.readFile(outputName);
+                
+                const blob = new Blob([data.buffer], { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                
+                let baseName = currentFile.name.substring(0, currentFile.name.lastIndexOf('.'));
+                if(!baseName) baseName = "video";
+                const resLabel = resolution === '854x480' ? '480p' : '360p';
+                
+                a.href = url;
+                a.download = `${baseName}_${resLabel}.mp4`;
+                
+                document.body.appendChild(a);
+                a.click();
+                
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+
+                logToConsole("Success! File downloaded.");
+                statusText.textContent = "แปลงไฟล์และดาวน์โหลดสำเร็จ!";
+                statusText.classList.remove('text-gray-700');
+                statusText.classList.add('text-green-600', 'font-bold');
+
+            } catch (error) {
+                console.error("Conversion Error:", error);
+                statusText.textContent = "เกิดข้อผิดพลาดในการแปลงไฟล์";
+                statusText.classList.remove('text-gray-700');
+                statusText.classList.add('text-red-600', 'font-bold');
+                logToConsole(`ERROR: ${error.message || 'Unknown error'}`, true);
+            } finally {
+                isConverting = false;
+                removeFileBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                
+                setTimeout(() => {
+                    convertBtn.disabled = false;
+                    convertBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> เริ่มแปลงไฟล์';
+                    convertBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                    convertBtn.classList.remove('bg-gray-500');
+                    
+                    statusText.classList.remove('text-green-600', 'text-red-600', 'font-bold');
+                    statusText.classList.add('text-gray-700');
+                }, 3000);
+            }
+        });
+    </script>
+</body>
+</html>
